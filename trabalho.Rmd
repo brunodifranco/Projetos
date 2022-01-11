@@ -1,0 +1,593 @@
+---
+title: "Trabalho Econometria - Bruno Di Franco A."
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+\documentclass[12pt,a4paper]{article}
+\usepackage{amsmath}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{graphicx}
+\usepackage{lmodern}
+\usepackage[english]{babel}
+\usepackage{natbib}
+\bibliographystyle{apalike}
+\usepackage[onehalfspacing]{setspace}
+\usepackage[nottoc]{tocbibind}
+\usepackage[left= 4cm,right = 2cm, bottom = 2 cm]{geometry}
+\usepackage{hyperref}
+\usepackage[nopostdot,toc,nonumberlist]{glossaries}
+\makeglossaries
+\usepackage{newunicodechar}
+\newunicodechar{ﬁ}{fi}
+\newunicodechar{ﬀ}{ff}
+
+\begin{document}
+
+
+
+
+```{r load-packages, include=FALSE}
+library(AER)
+library(aTSA)
+library(car)
+library(carData)
+library(dbplyr)
+library(discreteRV)
+library(dlm)
+library(dplyr)
+library(dygraphs)
+library(dynlm)
+library(fBasics)
+library(fGarch)
+library(forcats)
+library(fUnitRoots)
+library(ggplot2)
+library(ghyp)
+library(gplots)
+library(highcharter)
+library(htmltools)
+library(knitr)
+library(lmtest)
+library(lubridate)
+library(magrittr)
+library(markdown)
+library(MTS)
+library(numDeriv)
+library(orcutt)
+library(PerformanceAnalytics)
+library(plyr)
+library(purrr)
+library(Quandl)
+library(quantmod)
+library(readr)
+library(rmarkdown)
+library(sandwich)
+library(seasonalview)
+library(seasonal)
+library(stargazer)
+library(stringr)
+library(strucchange)
+library(tbl2xts)
+library(tibble)
+library(tidyquant)
+library(tidyr)
+library(tidyverse)
+library(timeDate)
+library(timeSeries)
+library(tseries)
+library(TTR)
+library(urca)
+library(vars)
+library(xtable)
+library(xts)
+library(zoo)
+library(forecast)
+library(fpp)
+library(knitr)
+library(rmarkdown)
+
+```
+
+Dados da Unipar Carbocloro S.A. (UNIP6.SA) Desde 03 De Janeiro de 2000(extraídos do site Yahoo Finanças)
+
+Iª PARTE
+
+Importar os dados do yahoo finanças e visualizar o gráfico dos preços.
+
+```{r warning=FALSE, echo=FALSE, message=FALSE}
+getSymbols("UNIP6.SA", src = "yahoo", from = '1996-05-05', to = '2019-11-11')
+
+log_day_return <- na.omit(PerformanceAnalytics::Return.calculate(UNIP6.SA$UNIP6.SA.Close, method = "log"))
+plot.xts(UNIP6.SA$UNIP6.SA.Close, main = "Preços da UNIP6.SA", xlab = "Tempo", ylab = "Preços")
+```
+
+Os retornos financeiros raramente apresentam tendência ou sazonalidade, com exceção eventualmente de retornos 'anormais'. Em função dessas características, optamos por usar a série temporal dos retornos da UNIP6.SA.
+
+Série temporal dos retornos
+
+```{r warning=FALSE, echo=FALSE, message=FALSE}
+plot.xts(log_day_return, main = "Retornos da UNIP6.SA", xlab = "tempo", ylab = "retorno")
+```
+
+
+(1)Escolha dos lags no Teste de Dickey Fuller
+
+H0: Φ = 1 : raiz unitária (passeio aleatório)
+
+H1: Φ < 1 : sem raiz unitária (não é um passeio aleatório - série estacionária)
+
+Adotamos o grau de significância do teste = 5% (p-value = 0.05)
+
+
+O teste unitRootnc testa um passeio aleatório sem drift e sem tendência.
+O teste unitRootc testa um passeio aleatório com drift e sem tendência.
+O teste unitRootct testa um passeio aleatório com drift e com tendência.
+
+Segundo Bueno Cap.4, uma das formas de definir o lag máximo é fixar um p-max relativamente alto. Em seguida, estima-se o modelo por mínimos quadrados ordinários para Pmax,Pmax - 1, ... ,O e coletam-se os valores de algum dos critérios de informação - como Hannan- Quinn, Schwarz ou Akaike- ou utilizando testes estatísticos convencionais até que se rejeite a hipótese nula, usando como nível de significância 20%. Esse pmax é definido pela fórmula:
+
+Pmax = int [ 12 . ( T/1000)^1/4], onde T é o tamanho da amostra, no caso T = 5002, então pmax = 31.
+
+```{r warning=FALSE, echo=TRUE, message=FALSE}
+unitRootnc31lags <- fUnitRoots::adfTest(log_day_return, lags = 31, type=c("nc"))
+unitRootc31lags <- fUnitRoots::adfTest(log_day_return, lags = 31, type=c("c"))
+unitRootct31lags <- fUnitRoots::adfTest(log_day_return, lags = 31, type=c("ct"))
+
+```
+
+Esse método de definição de lags de Bueno nos diz "utilizando testes estatísticos convencionais até que se rejeite a hipótese nula, usando como nível de significância 20%", no caso em questão o número de lags 31 já rejeitou a nula a 20% de significância(inclusive para os 5%), o p-valor =0.01, assim podemos usar 31 lags para o teste ADF. Assim sendo, não há evidências suficientes(tanto para um modelo com tendência e/ou drift) para negar a estacionariedade da série dos retornos do UNIP6.SA.
+
+Analisar as funções de autocorrelação e autocorrelação parcial para definir qual modelo se ajusta melhor aos dados
+
+```{r warning=FALSE, echo=FALSE, message=FALSE}
+
+acf_arma <- acf(log_day_return, na.action = na.pass, plot = FALSE, lag.max = 20)
+pacf_arma <- pacf(log_day_return, na.action = na.pass, plot = FALSE, lag.max= 20)
+
+par(mfrow=c(1,1))
+plot(acf_arma, main = "", ylab = "", xlab = "Defasagem")
+title("Função de Autocorrelação (FAC)", adj = 0.5, line = 1)
+
+
+acf(log_day_return,plot=FALSE, lag.max =  20)
+
+
+
+```
+
+
+```{r warning=FALSE, echo=FALSE, message=FALSE}
+par(mfrow=c(1,1))
+
+plot(pacf_arma, main = "", ylab = "", xlab = "Defasagem")
+title("Função de Autocorrelação Parcial (FACP)", adj = 0.5, line = 1)
+
+
+pacf(log_day_return,plot=FALSE, lag.max =  20)
+
+
+```
+
+
+(2)Nº de lags significativos.
+
+Obs.: O grau de significância usado é 5% = 0.05.
+
+A função FAC está associada a ordem do MA(q). Na série há apenas 1 lag significativo, no caso o lag nº 1(-0.174)
+
+A função FACP está associada a ordem do AR(p). Na série há 4 lags significativos, no caso o lag 1(-0.174), lag 2(-0.080), lag 3(-0.051) e lag 20(0.077)
+
+Pelas funções FAC e FACP, o modelo maximo da série ARMA(4,1). Então iremos testar,além do ARMA(4,1), todos os modelos possíveis de graus inferiores.
+
+Calcular o critério BIC para determinar qual dos modelos acima citados melhor se ajusta aos dados da série.
+
+```{r warning=FALSE, echo=FALSE, message=FALSE}
+pars <- expand.grid(ar = 0:4, diff = 0, ma = 0:1)
+
+modelo <- list()
+
+
+for (i in 1:nrow(pars)) {
+  modelo[[i]] <- arima(log_day_return, order = unlist(pars[i, 1:3]), method = "ML")
+}
+
+
+log_verossimilhanca <- list()
+for (i in 1:length(modelo)) {
+  log_verossimilhanca[[i]] <- modelo[[i]]$loglik
+}
+
+
+aicarma <- list()
+for (i in 1:length(modelo)) {
+  aicarma[[i]] <- stats::AIC(modelo[[i]])
+}
+
+
+bicarma <- list()
+for (i in 1:length(modelo)) {
+  bicarma[[i]] <- stats::BIC(modelo[[i]])
+}
+
+
+quant_parametros <- list()
+for (i in 1:length(modelo)) {
+  quant_parametros[[i]] <- length(modelo[[i]]$coef)+1 
+}
+
+
+especificacao <- paste0("arma",pars$ar,pars$diff,pars$ma)
+tamanho_amostra <- rep(length(log_day_return), length(modelo))
+resultado_arma <- data.frame(especificacao, ln_verossimilhanca = unlist(log_verossimilhanca),
+                       quant_parametros = unlist(quant_parametros),
+                       tamanho_amostra, aic = unlist(aicarma), 
+                       bic = unlist(bicarma), stringsAsFactors = FALSE)
+
+tabelapdf_arma <- xtable(resultado_arma, align = "lcccccc", digits = c(0,0,2,0,0,2,2))
+print(tabelapdf_arma, comment = FALSE)
+
+
+```
+
+Pela estimação do BIC o modelo que melhor se ajusta a série (menor valor do BIC = -19950.73) é um ARMA(1,1)
+
+Estimando os parâmetros do modelo ARMA(1,1) por máxima verossimilhança.
+
+```{r warning=FALSE, echo=TRUE, message=FALSE}
+
+media_condicional <- arima(log_day_return, order = c(1,0,1), method = "ML")
+
+```
+(3)Intercepto do modelo
+
+A estimação dos parâmetros para o modelo ARMA(1,1) forneceu intercepto 0,000524,  coeficientes 0,3019 e -0,4963. Assim, o modelo é o seguinte:
+
+$$
+Y_{t}
+ˆ = \phi_{1}Y_{t-1} + \epsilon_{t} + {\theta}_{1}\epsilon_{t-1} + {\phi_{0}}
+$$
+Onde, ϕ1 = 0,3019 e θ1 = -0,4963 e ϕ0 = intercepto = 0,000524 . Então, o modelo com os coeficientes estimados por máxima verossimilhança fica:
+
+$$
+Y_{t}
+ˆ = 0,3019Y_{t-1} + \epsilon_{t} + -0,4963\epsilon_{t-1} + 0,000524
+$$
+Análise dos resíduos
+
+Analisar se há homocedasticidade condicional, isto é, se $Var(\epsilon_{t}) = \sigma_{\epsilon}^{2}$
+
+
+(4)FACP do quadrado dos resíduos
+
+```{r warning=FALSE, echo=FALSE, message=FALSE}
+
+pacf_residuals_square <- stats::pacf(media_condicional$residuals^2, plot = FALSE, na.action = na.pass, max.lag = 60)
+plot(pacf_residuals_square, main = "", ylab = "", xlab = "Defasagem")
+title("FACP do quadrado dos resíduos do ARMA(1,1)", adj = 0.5, line = 1)
+```
+
+FAC do quadrado dos resíduos
+
+```{r warning=FALSE, echo=FALSE, message=FALSE}
+
+acf_residuals_square <- stats::acf(media_condicional$residuals^2, na.action = na.pass, plot = FALSE, lag.max = 60)
+plot(acf_residuals_square, main = "", ylab = "", xlab = "Defasagem")
+title("FAC do quadrado dos resíduos do ARMA(1,1)", adj = 0.5, line = 1)
+```
+
+Encontramos várias defasagens estatisticamente significantes indicando a presença de heterocedasticidade condicional nos resíduos obtidos do modelo, ou seja a variância de $\epsilon_{t}$ não é constante e independente do tempo.
+
+
+Analisar se os resíduos não são correlacionados entre si, isto é, se $E[\left(\epsilon_{t}-E\left(\epsilon_{t}\right)\right)\left(\epsilon_{t-h}-E\left(\epsilon_{t}\right)\right)]=E[\epsilon_{t}\epsilon_{t-h}]=0$
+
+FAC dos resíduos
+```{r warning=FALSE, echo=FALSE, message=FALSE}
+
+acf_residuals <- acf(media_condicional$residuals, na.action = na.pass, plot = FALSE, lag.max = 60)
+plot(acf_residuals, main = "", ylab = "", xlab = "Defasagem")
+title("FAC dos resíduos do ARMA(1,1)", adj = 0.5, line = 1)
+acf(media_condicional$residuals, na.action = na.pass, plot = FALSE, lag.max = 60)
+```
+Na FAC dos resíduos há apenas 2 lags significativos a 5% dentre 60 lags : lag 20(0.078) e lag 39(0.067)
+
+(4)FACP dos resíduos
+
+```{r warning=FALSE, echo=FALSE, message=FALSE}
+
+pacf_residuals <- pacf(media_condicional$residuals, na.action = na.pass, plot = FALSE, lag.max = 60)
+plot(pacf_residuals, main = "", ylab = "", xlab = "Defasagem")
+title("FACP dos resíduos do ARMA(1,1)", adj = 0.5, line = 1)
+pacf(media_condicional$residuals, na.action = na.pass, plot = FALSE, lag.max = 60)
+```
+
+Na FACP dos resíduos há apenas 3 lags significativos a 5% dentre 60 lags : lag 15(0.054), lag 20(0.073) e lag 39(0.066).
+
+A FAC e FACP dos resíduos do modelo mostra que a maior parte das autocorrelações estão dentro dos limites a 5% de significância.
+
+
+Vamos proceder também ao Teste de Ljung-Box:
+
+O Teste de Ljung-Box terá aproximadamente uma distribuição $ \chi^2 $ com (K - p - q) graus de liberdade, onde k é o número de lags, e as hipóteses são as seguintes:
+
+Ho: Os resíduos são i.i.d 
+
+H1: Os resíduos não são i.i.d 
+
+Rejeitamos a hipótese nula se o p-valor for menor que o grau de significância adotado(no caso 5%)
+
+(5)Escolha dos lags 
+
+Por Shumway and Stoffer(pg.141-142) faremos o Teste de Ljung-Box de 3 lags até 20.
+
+```{r warning=FALSE, echo=FALSE, message=FALSE}
+Box.test(media_condicional$residuals,type="Ljung",lag=3,fitdf=1)
+Box.test(media_condicional$residuals,type="Ljung",lag=4,fitdf=1)
+Box.test(media_condicional$residuals,type="Ljung",lag=5,fitdf=1)
+Box.test(media_condicional$residuals,type="Ljung",lag=6,fitdf=1)
+Box.test(media_condicional$residuals,type="Ljung",lag=7,fitdf=1)
+Box.test(media_condicional$residuals,type="Ljung",lag=8,fitdf=1)
+Box.test(media_condicional$residuals,type="Ljung",lag=9,fitdf=1)
+Box.test(media_condicional$residuals,type="Ljung",lag=10,fitdf=1)
+Box.test(media_condicional$residuals,type="Ljung",lag=11,fitdf=1)
+Box.test(media_condicional$residuals,type="Ljung",lag=12,fitdf=1)
+Box.test(media_condicional$residuals,type="Ljung",lag=13,fitdf=1)
+Box.test(media_condicional$residuals,type="Ljung",lag=14,fitdf=1)
+Box.test(media_condicional$residuals,type="Ljung",lag=15,fitdf=1)
+Box.test(media_condicional$residuals,type="Ljung",lag=16,fitdf=1)
+Box.test(media_condicional$residuals,type="Ljung",lag=17,fitdf=1)
+Box.test(media_condicional$residuals,type="Ljung",lag=18,fitdf=1)
+Box.test(media_condicional$residuals,type="Ljung",lag=19,fitdf=1)
+Box.test(media_condicional$residuals,type="Ljung",lag=20,fitdf=1)
+
+```
+
+(6);(7)Pela saída dos testes a partir do lag = 7 até o lag = 20 rejeitamos a nula, ou seja não há evidências suficientes para assumir que a série tenha resíduos i.i.d.
+
+
+IIª PARTE
+
+Especificar um modelo de volatilidade e estimar conjuntamente as equações da média e variância condicional
+
+Examinando as funções de autocorrelação (FAC) e autocorrelação parcial (FACP) dos resíduos ao quadrado para determinar a ordem máxima do modelo GARCH.
+
+```{r warning=FALSE, echo=FALSE, message=FALSE}
+
+acf_residuals_square <- acf(media_condicional$residuals^2, na.action = na.pass, plot = FALSE, lag.max = 60)
+
+pacf_residuals_square <- stats::pacf(media_condicional$residuals^2, plot = FALSE, na.action = na.pass, max.lag = 60)
+
+
+par(mfrow=c(1,1))
+plot(acf_residuals_square, main = "", ylab = "", xlab = "Defasagem")
+title("FAC do quadrado dos resíduos do ARMA(1,1)", adj = 0.5, line = 1)
+```
+
+
+
+```{r warning=FALSE, echo=FALSE, message=FALSE}
+
+acf_residuals_square <- acf(media_condicional$residuals^2, na.action = na.pass, plot = FALSE, lag.max = 60)
+
+pacf_residuals_square <- stats::pacf(media_condicional$residuals^2, plot = FALSE, na.action = na.pass, max.lag = 60)
+
+
+par(mfrow=c(1,1))
+plot(pacf_residuals_square, main = "", ylab = "", xlab = "Defasagem")
+title("FACP do quadrado dos resíduos do ARMA(1,1)", adj = 0.5, line = 1)
+```
+
+(8)Ordem do modelo Garch
+
+Segundo "Morettin e Toloi, 2004" a identificação da ordem de um modelo GARCH usualmente é difícil. Recomenda-se que se use modelos de ordem baixa, como (1, 1), (1, 2) ou (2, 1) e depois se escolha o modelo com menor AIC/BIC.
+
+Portanto, iremos testar os modelos Garch(2,1), Garch(1,2), e ordens inferiores e escolher aquele com menor BIC. 
+
+(9);(10)Distribuição dos resíduos
+
+Precisamos avaliar entre as distribuições de probabilidade aquela que melhor se ajusta aos resíduos do modelo estimado anteriormente ARMA(1,1). Testaremos as distribuições "norm", "snorm", "ged", "sged", "std", "sstd", "snig", "QMLE".
+
+
+Obs.: As distribuições "norm", "snorm", "ged", "sged", "std", "snig", "QMLE" retornam com a mensagem de erro Error in solve.default(fithessian) : Lapack routine dgesv: system is exactly singular: U[6,6] = 0(ou U[5,5], U[4,4], U[3,3], etc), ou retorna outro erro ainda Error in solve.default(fithessian) : system is computationally singular: reciprocal condition number = 4.75118e-23, portanto só foi possível testar a t assimétrica(sstd). Portanto, conforme aconselhado pelo professor, usaremos a função stepAIC.ghyp para encontrar a distribuição que melhor se ajusta aos resíduos do modelo.
+
+```{r warning=FALSE, echo=FALSE, message=FALSE, results = 'hide'}
+aic.mv <- stepAIC.ghyp(media_condicional$residuals, dist = c("norm","ghyp", "hyp", "NIG", "VG", "t", "gauss"), symmetric = F)
+summary(aic.mv$best.model)
+
+```
+Assim, sendo pelo output da função stepAIC.ghyp a melhor distribuição que se ajusta aos resíduos do modelo é uma t assimétrica.
+
+Calculando o AIC e BIC para determinar a ordem do Garch com a t assimétrica(sstd).
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+
+pars_arma_garch <- expand.grid(m = 1:2, n = 0:2)
+
+
+modelo_arma_garch <- list()
+
+
+arma_set <- "~arma(1,1)"
+
+ 
+arma_residuals_dist <- "sstd"
+
+
+include.skew = TRUE
+include.shape = TRUE
+
+
+for (i in 1:nrow(pars_arma_garch)) {
+  modelo_arma_garch[[i]] <- fGarch::garchFit(as.formula(paste0(arma_set,"+","garch(",pars_arma_garch[i,1],",",pars_arma_garch[i,2], ")")),
+                                            data = log_day_return, trace = FALSE, cond.dist = arma_residuals_dist,
+                                            include.skew = include.skew, include.shape = include.shape) 
+}
+
+
+log_verossimilhanca_arma_garch <- list()
+for (i in 1:length(modelo_arma_garch)) {
+  log_verossimilhanca_arma_garch[[i]] <- modelo_arma_garch[[i]]@fit$llh
+}
+
+
+aicarma_garch <- list()
+for (i in 1:length(modelo_arma_garch)) {
+  aicarma_garch[[i]] <- modelo_arma_garch[[i]]@fit$ics[1]
+}
+
+
+bicarma_garch <- list()
+for (i in 1:length(modelo_arma_garch)) {
+  bicarma_garch[[i]] <- modelo_arma_garch[[i]]@fit$ics[2]
+}
+
+
+quant_paramentros_arma_garch <- list()
+for (i in 1:length(modelo_arma_garch)) {
+  quant_paramentros_arma_garch[[i]] <- length(modelo_arma_garch[[i]]@fit$coef)
+}
+
+
+especificacao <- paste0(arma_set,"-","garch",pars_arma_garch$m,pars_arma_garch$n)
+tamanho_amostra <- rep(length(log_day_return), length(modelo_arma_garch))
+resultado_arma_garch <- data.frame(especificacao, ln_verossimilhanca = unlist(log_verossimilhanca_arma_garch),
+                       quant_paramentros = unlist(quant_paramentros_arma_garch),
+                       tamanho_amostra, aic = unlist(aicarma_garch), bic = unlist(bicarma_garch),
+                       stringsAsFactors = FALSE, row.names = NULL)
+
+
+tabelapdf_arma_garch <- xtable(resultado_arma_garch, align = "lcccccc", digits = c(0,0,5,0,0,5,5))
+
+print(tabelapdf_arma_garch, comment = FALSE)
+
+```
+
+(11)Ajuste da tabela para exibir o resultado até 5 casas após a vírgula
+
+Como é possível observar pela tabela acima o modelo GARCH que melhor se ajusta é o GARCH(1,2), já que possui o menor BIC = - 4.74656, enquanto o 2º  melhor modelo seria GARCH(1,1) com BIC = - 4.74595.
+
+
+Estimando os parâmetros do modelo GARCH(1,2) pela função 'stargazer'
+
+```{r warning=FALSE, echo=FALSE, message=FALSE}
+estimacaomodeloarma11garch12 <- stargazer::stargazer(modelo_arma_garch[[4]], type = "latex", header = FALSE, title = "Resultado Estimação modelo ARMA(1,1)-GARCH(1,2)")
+```
+
+Verificar se o modelo continua com heterocedasticidade condicional.
+
+Análise da FAC do quadrado dos resíduos do ARMA(1,1)- GARCH(1,2).
+
+```{r warning=FALSE, echo=FALSE, message=FALSE}
+
+acf_residuals_square_arma_garch <- acf(fGarch::residuals(modelo_arma_garch[[4]], standardize = TRUE)^2, na.action = na.pass, plot = FALSE, lag.max = 15)
+
+plot(acf_residuals_square_arma_garch, main = "", ylab = "", xlab = "Defasagem")
+title("FAC do quadrado dos resíduos do ARMA(1,1)-GARCH(1,2)", adj = 0.5, line = 1)
+```
+
+(12)FACP do quadrado dos resíduos do ARMA(1,1)-GARCH(1,2)
+
+```{r warning=FALSE, echo=FALSE, message=FALSE}
+
+pacf_residuals_square_arma_garch <- pacf(fGarch::residuals(modelo_arma_garch[[4]], standardize = TRUE)^2, na.action = na.pass, plot = FALSE, lag.max = 15)
+
+plot(pacf_residuals_square_arma_garch, main = "", ylab = "", xlab = "Defasagem")
+title("FACP do quadrado dos resíduos do ARMA(1,1)-GARCH(1,2)", adj = 0.5, line = 1)
+```
+
+Como não há nenhuma defasagem significativa na FAC e na FACP do quadrado dos resíduos nosso modelo captou a heterocedasticidade condicional, vamos proceder também ao teste de Ljung-Box.
+
+Teste de Ljung-Box para ARMA(1,1)-GARCH(1,2) de 1 a 20 lags.
+(13) Faremos de 1 a 20 lags conforme Shumway and Stoffer(pg.141-142).
+```{r warning=FALSE, echo=FALSE, message=FALSE}
+Box.test(fGarch::residuals(modelo_arma_garch[[4]], standardize = TRUE),type="Ljung",lag=01,fitdf=1)
+Box.test(fGarch::residuals(modelo_arma_garch[[4]], standardize = TRUE),type="Ljung",lag=02,fitdf=1)
+Box.test(fGarch::residuals(modelo_arma_garch[[4]], standardize = TRUE),type="Ljung",lag=03,fitdf=1)
+Box.test(fGarch::residuals(modelo_arma_garch[[4]], standardize = TRUE),type="Ljung",lag=04,fitdf=1)
+Box.test(fGarch::residuals(modelo_arma_garch[[4]], standardize = TRUE),type="Ljung",lag=06,fitdf=1)
+Box.test(fGarch::residuals(modelo_arma_garch[[4]], standardize = TRUE),type="Ljung",lag=07,fitdf=1)
+Box.test(fGarch::residuals(modelo_arma_garch[[4]], standardize = TRUE),type="Ljung",lag=08,fitdf=1)
+Box.test(fGarch::residuals(modelo_arma_garch[[4]], standardize = TRUE),type="Ljung",lag=09,fitdf=1)
+Box.test(fGarch::residuals(modelo_arma_garch[[4]], standardize = TRUE),type="Ljung",lag=10,fitdf=1)
+Box.test(fGarch::residuals(modelo_arma_garch[[4]], standardize = TRUE),type="Ljung",lag=11,fitdf=1)
+Box.test(fGarch::residuals(modelo_arma_garch[[4]], standardize = TRUE),type="Ljung",lag=12,fitdf=1)
+Box.test(fGarch::residuals(modelo_arma_garch[[4]], standardize = TRUE),type="Ljung",lag=13,fitdf=1)
+Box.test(fGarch::residuals(modelo_arma_garch[[4]], standardize = TRUE),type="Ljung",lag=14,fitdf=1)
+Box.test(fGarch::residuals(modelo_arma_garch[[4]], standardize = TRUE),type="Ljung",lag=15,fitdf=1)
+Box.test(fGarch::residuals(modelo_arma_garch[[4]], standardize = TRUE),type="Ljung",lag=16,fitdf=1)
+Box.test(fGarch::residuals(modelo_arma_garch[[4]], standardize = TRUE),type="Ljung",lag=17,fitdf=1)
+Box.test(fGarch::residuals(modelo_arma_garch[[4]], standardize = TRUE),type="Ljung",lag=18,fitdf=1)
+Box.test(fGarch::residuals(modelo_arma_garch[[4]], standardize = TRUE),type="Ljung",lag=19,fitdf=1)
+Box.test(fGarch::residuals(modelo_arma_garch[[4]], standardize = TRUE),type="Ljung",lag=20,fitdf=1)
+
+```
+Pelo teste de Ljung-Box para o modelo Arma(1,1) - Garch(1,2) rejeitamos a nula a 5% para o lag 1 e o lag 20, enquanto dos lags 2 ao 19 não rejeitamos a nula, isto é, para o lag 2 ao 19 não há evidências suficientes para afirmar que o modelo possua resíduos que não sejam i.i.d.
+
+
+Visualizar os resultados
+
+```{r warning=FALSE, echo=FALSE, message=FALSE}
+plot(modelo_arma_garch[[4]], which = 3)
+```
+
+(14)Obter as previsões: No caso iremos prever 3 meses à frente.
+
+```{r warning=FALSE, echo=FALSE, message=FALSE}
+forecast <- fGarch::predict(modelo_arma_garch[[4]], n.ahead = 90)
+
+tabelapdfforecast<- xtable(forecast, align = "lccc", digits = c(0,5,5,5))
+print(tabelapdfforecast, comment = FALSE)
+
+```
+
+(15)Medidas de acurácia e (16)Validação cruzada
+
+Dividindo a série (n=5002) em cinco partes iguais(series):
+Dados de treinamento: Chamado de series[[1][2][3][4]], contendo dados até a observação nº 4000.
+Dados de teste: Chamado de series[[5]], contendo dados da observação nº 4001 até a 5002.
+
+```{r warning=FALSE, echo=FALSE, message=FALSE}
+df_unip6sa <- data.frame(date=index(UNIP6.SA$UNIP6.SA.Close), coredata(UNIP6.SA$UNIP6.SA.Close))
+
+series <- list()
+
+series[[1]] <- ts(df_unip6sa$UNIP6.SA.Close,start = 1, end = 1000, frequency=1)
+series[[2]] <- ts(df_unip6sa$UNIP6.SA.Close,start = 1001, end = 2000, frequency=1)
+series[[3]] <- ts(df_unip6sa$UNIP6.SA.Close,start = 2001, end = 3000, frequency=1)
+series[[4]] <- ts(df_unip6sa$UNIP6.SA.Close,start = 3001, end = 4000, frequency=1)
+series[[5]] <- ts(df_unip6sa$UNIP6.SA.Close,start = 4001, end = 5002, frequency=1)
+
+holdout <- 10
+
+forecasts <- lapply(series,function(foo) {
+    subseries <- ts(head(foo,length(foo)-holdout),start=start(foo),frequency=frequency(foo))
+    forecast(auto.arima(subseries),h=holdout)
+})
+
+result <- mapply(FUN=accuracy,f=forecasts,x=series,SIMPLIFY=FALSE)
+result
+
+
+```
+Pela saída do teste as estatísticas ME, RMSE, MAE, MPE, MAPE, MASE, ACF1 E Theil's U parecem apresentar boas medidas compatível de um modelo de boa acurácia, e que preveja resultados de forma consistente.
+
+
+Exemplo : Comparar o RMSE do residuo com o RMSE obtido via validação cruzada de séries temporais.
+
+```{r warning=FALSE, echo=FALSE, message=FALSE}
+e <- tsCV(UNIP6.SA$UNIP6.SA.Close, rwf, drift=T, h=1)
+sqrt(mean(e^2, na.rm=TRUE))
+sqrt(mean(residuals(rwf(UNIP6.SA$UNIP6.SA.Close, drift=T))^2, na.rm=TRUE))
+```
+Como é possível observar os valores obtidos são muito próximos.
+
+
+
+
